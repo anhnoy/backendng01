@@ -14,7 +14,8 @@ exports.register = async (req, res) => {
     const user = await User.create({ email, password: hashed, role });
     res.status(201).json({ id: user.id, email: user.email, role: user.role });
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    console.error('Register error:', err); // เพิ่ม log error
+    res.status(400).json({ error: err.message || JSON.stringify(err) });
   }
 };
 
