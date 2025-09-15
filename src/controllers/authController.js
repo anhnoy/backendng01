@@ -1,3 +1,7 @@
+// Logout: แค่ตอบ success (frontend ต้องลบ token เอง)
+exports.logout = (req, res) => {
+  res.status(200).json({ message: 'Logged out' });
+};
 
 const User = require('../models/user');
 const { hashPassword, comparePassword } = require('../utils/hash');

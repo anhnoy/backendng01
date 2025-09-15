@@ -20,9 +20,11 @@ app.use(express.json());
 
 // Routes
 
+
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/users', require('./routes/user'));
 app.use('/api/tasks', require('./routes/task'));
+app.use('/api/countries', require('./routes/country'));
 
 
 // Sync DB and start server
