@@ -1,6 +1,9 @@
 const express = require('express');
 const cors = require('cors');
 const app = express();
+// ให้ Express เปิด static path สำหรับไฟล์รูปภาพ
+app.use('/uploads', express.static('uploads'));
+// const app = express();
 const PORT = process.env.PORT || 3000;
 
 const sequelize = require('./sequelize');
@@ -10,9 +13,8 @@ const User = require('./models/user');
 app.use(cors({
    origin: [
     'http://localhost:8080',
-    'http://192.168.201.13:8080',
-    'https://lovable.dev',
-    'https://your-project.lovable.dev'
+    'http://192.168.201.13:8080'
+   
   ],
   credentials: true
 }));

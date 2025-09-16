@@ -50,7 +50,19 @@ exports.getAttractions = async (req, res) => {
     if (country) where.country = country;
     if (search) where.name = { [Op.like]: `%${search}%` };
     const attractions = await Attraction.findAll({ where });
-    res.json(attractions);
+    // แปลง images/vehicles เป็น array ถ้าเป็น string
+    const result = attractions.map(a => {
+      let images = a.images;
+      let vehicles = a.vehicles;
+      if (typeof images === 'string') {
+        try { images = JSON.parse(images); } catch { images = []; }
+      }
+      if (typeof vehicles === 'string') {
+        try { vehicles = JSON.parse(vehicles); } catch { vehicles = []; }
+      }
+      return { ...a.toJSON(), images, vehicles };
+    });
+    res.json(result);
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
