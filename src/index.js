@@ -1,4 +1,3 @@
-
 const express = require('express');
 const cors = require('cors');
 const app = express();
@@ -9,14 +8,17 @@ const User = require('./models/user');
 
 // Allow CORS for frontend on port 8080
 app.use(cors({
-  origin: [
+   origin: [
     'http://localhost:8080',
-    'http://192.168.201.13:8080'
+    'http://192.168.201.13:8080',
+    'https://lovable.dev',
+    'https://your-project.lovable.dev'
   ],
   credentials: true
 }));
 
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ limit: '10mb', extended: true }));
 
 // Routes
 
@@ -25,6 +27,7 @@ app.use('/api/auth', require('./routes/auth'));
 app.use('/api/users', require('./routes/user'));
 app.use('/api/tasks', require('./routes/task'));
 app.use('/api/countries', require('./routes/country'));
+app.use('/api/attractions', require('./routes/attraction'));
 
 
 // Sync DB and start server
