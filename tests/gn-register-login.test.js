@@ -2,10 +2,15 @@ const request = require('supertest');
 const express = require('express');
 const bodyParser = require('body-parser');
 const authRoutes = require('../src/routes/auth');
+const sequelize = require('../src/sequelize');
 
 const app = express();
 app.use(bodyParser.json());
 app.use('/api/auth', authRoutes);
+
+beforeAll(async () => {
+  await sequelize.sync({ force: true });
+});
 
 describe('GN Register & Login API', () => {
   let email = '';

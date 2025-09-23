@@ -2,10 +2,20 @@ const request = require('supertest');
 const express = require('express');
 const bodyParser = require('body-parser');
 const authRoutes = require('../src/routes/auth');
+const sequelize = require('../src/sequelize');
 
 const app = express();
 app.use(bodyParser.json());
 app.use('/api/auth', authRoutes);
+
+beforeAll(async () => {
+  await sequelize.sync({ force: true });
+  // สร้าง superadmin ล่วงหน้า
+  const User = require('../src/models/user');
+  const { hashPassword } = require('../src/utils/hash');
+  const hashed = await hashPassword('99747127aA@');
+  await User.create({ email: 'superadmin@example.com', password: hashed, role: 'superadmin' });
+});
 
 describe('Superadmin Login API', () => {
   it('should login superadmin with correct credentials', async () => {

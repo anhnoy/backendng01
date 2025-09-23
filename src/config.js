@@ -1,4 +1,8 @@
-require('dotenv').config();
+if (process.env.NODE_ENV === 'test') {
+  require('dotenv').config({ path: '.env.test' });
+} else {
+  require('dotenv').config();
+}
 
 module.exports = {
   db: {
@@ -8,5 +12,5 @@ module.exports = {
     host: process.env.DB_HOST,
     dialect: 'mysql',
   },
-  jwtSecret: process.env.JWT_SECRET,
+  jwtSecret: process.env.JWT_SECRET || 'dev-secret-change-me',
 };

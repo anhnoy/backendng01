@@ -1,3 +1,4 @@
+process.env.NODE_ENV = 'test';
 const request = require('supertest');
 const express = require('express');
 const bodyParser = require('body-parser');
@@ -58,7 +59,7 @@ describe('Attraction API', () => {
   it('should update attraction', async () => {
     const res = await request(app)
       .put(`/api/attractions/${id}`)
-      .send({ name: 'วัดใหม่', images: ['https://example.com/img1.jpg'] });
+      .send({ name: 'วัดใหม่' }); // ไม่ส่ง images เพื่อไม่ลบรูปเดิม
     expect(res.statusCode).toBe(200);
     expect(res.body.attraction).toHaveProperty('name', 'วัดใหม่');
   });

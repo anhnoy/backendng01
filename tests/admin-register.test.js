@@ -1,3 +1,7 @@
+const sequelize = require('../src/sequelize');
+beforeAll(async () => {
+  await sequelize.sync({ force: true });
+});
 const request = require('supertest');
 const express = require('express');
 const bodyParser = require('body-parser');
