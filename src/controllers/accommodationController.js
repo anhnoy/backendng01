@@ -2,6 +2,8 @@ const Accommodation = require('../models/accommodation');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { toAbsoluteUrl } = require('../utils/url');
+const { sendError } = require('../utils/errors');
 
 // Helpers to normalize images array
 function toImageString(img) {
@@ -70,24 +72,32 @@ async function normalizeAndPersistImages(images) {
   return out;
 }
 
+function transformAccommodation(row, req) {
+  if (!row) return row;
+  const images = Array.isArray(row.images) ? row.images : [];
+  const imagesAbsolute = images.map(i => toAbsoluteUrl(i, req));
+  const coverImage = imagesAbsolute[0] || null;
+  return { ...row.toJSON(), images, imagesAbsolute, coverImage };
+}
+
 exports.list = async (req, res) => {
   try {
     const where = {};
     if (req.query.country) where.country = req.query.country;
     const rows = await Accommodation.findAll({ where, order: [['id', 'DESC']] });
-    res.json(rows);
+    res.json(rows.map(r => transformAccommodation(r, req)));
   } catch (e) {
-    res.status(500).json({ message: 'Failed to fetch accommodations' });
+    sendError(res, 500, 'Failed to fetch accommodations');
   }
 };
 
 exports.get = async (req, res) => {
   try {
     const row = await Accommodation.findByPk(req.params.id);
-    if (!row) return res.status(404).json({ message: 'Not found' });
-    res.json(row);
+    if (!row) return sendError(res, 404, 'Not found');
+    res.json(transformAccommodation(row, req));
   } catch (e) {
-    res.status(500).json({ message: 'Failed to fetch accommodation' });
+    sendError(res, 500, 'Failed to fetch accommodation');
   }
 };
 
@@ -95,20 +105,20 @@ exports.create = async (req, res) => {
   try {
     const { name, country, type, latitude, longitude, images } = req.body || {};
     if (!name || !country || !type) {
-      return res.status(400).json({ message: 'name, country, and type are required' });
+      return sendError(res, 400, 'name, country, and type are required');
     }
     const imgs = await normalizeAndPersistImages(images);
     const created = await Accommodation.create({ name, country, type, latitude, longitude, images: imgs });
-    res.status(201).json(created);
+    res.status(201).json(transformAccommodation(created, req));
   } catch (e) {
-    res.status(500).json({ message: 'Failed to create accommodation' });
+    sendError(res, 500, 'Failed to create accommodation');
   }
 };
 
 exports.update = async (req, res) => {
   try {
     const row = await Accommodation.findByPk(req.params.id);
-    if (!row) return res.status(404).json({ message: 'Not found' });
+    if (!row) return sendError(res, 404, 'Not found');
   const { name, country, type, latitude, longitude, images } = req.body || {};
   if (images) row.images = await normalizeAndPersistImages(images);
     if (name !== undefined) row.name = name;
@@ -117,19 +127,19 @@ exports.update = async (req, res) => {
     if (latitude !== undefined) row.latitude = latitude;
     if (longitude !== undefined) row.longitude = longitude;
     await row.save();
-    res.json(row);
+    res.json(transformAccommodation(row, req));
   } catch (e) {
-    res.status(500).json({ message: 'Failed to update accommodation' });
+    sendError(res, 500, 'Failed to update accommodation');
   }
 };
 
 exports.remove = async (req, res) => {
   try {
     const row = await Accommodation.findByPk(req.params.id);
-    if (!row) return res.status(404).json({ message: 'Not found' });
+    if (!row) return sendError(res, 404, 'Not found');
     await row.destroy();
     res.json({ success: true });
   } catch (e) {
-    res.status(500).json({ message: 'Failed to delete accommodation' });
+    sendError(res, 500, 'Failed to delete accommodation');
   }
 };

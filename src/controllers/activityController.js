@@ -5,6 +5,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const { Op } = require('sequelize');
 const ActivityImage = require('../models/activityImage');
+const { toAbsoluteUrl } = require('../utils/url');
 
 const storage = multer.diskStorage({
   destination: function (req, file, cb) { cb(null, 'uploads/'); },
@@ -91,7 +92,9 @@ exports.createActivity = async (req, res) => {
       image: normalizedImage || image,
       isPopular: isPopular ?? false
     });
-    res.status(201).json({ activity });
+  const json = activity.toJSON();
+  json.imageAbsolute = toAbsoluteUrl(json.image, req);
+  res.status(201).json({ activity: json });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -108,7 +111,12 @@ exports.getActivities = async (req, res) => {
     if (attraction) where.attraction = attraction;
     if (search) where.name = { [Op.like]: `%${search}%` };
     const activities = await Activity.findAll({ where, include: [{ model: ActivityImage, as: 'images' }], order: [[{ model: ActivityImage, as: 'images' }, 'sortOrder', 'ASC']] });
-    res.json(activities);
+    const list = activities.map(a => {
+      const j = a.toJSON();
+      j.imageAbsolute = toAbsoluteUrl(j.image, req);
+      return j;
+    });
+    res.json(list);
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -131,7 +139,9 @@ exports.updateActivity = async (req, res) => {
   if (isPopular !== undefined) activity.isPopular = isPopular;
     await activity.save();
     const withImages = await Activity.findByPk(activity.id, { include: [{ model: ActivityImage, as: 'images' }], order: [[{ model: ActivityImage, as: 'images' }, 'sortOrder', 'ASC']] });
-    res.json({ message: 'Activity updated', activity: withImages });
+  const j = withImages.toJSON();
+  j.imageAbsolute = toAbsoluteUrl(j.image, req);
+  res.json({ message: 'Activity updated', activity: j });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

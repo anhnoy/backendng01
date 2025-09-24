@@ -1,6 +1,7 @@
 const { Op } = require('sequelize');
 const Destination = require('../models/destination');
 const DestinationImage = require('../models/destinationImage');
+const { toAbsoluteUrl } = require('../utils/url');
 
 function errorEnvelope(code, message, details) {
   return { error: { code, message, ...(details ? { details } : {}) } };
@@ -42,8 +43,9 @@ exports.createDestination = async (req, res) => {
       await DestinationImage.bulkCreate(imgs, { transaction: t });
     }
     await t.commit();
-    const withImages = await Destination.findByPk(dest.id, { include: [{ model: DestinationImage, as: 'images' }], order: [[{ model: DestinationImage, as: 'images' }, 'sortOrder', 'ASC']] });
-    return res.status(201).json({ destination: withImages });
+  let withImages = await Destination.findByPk(dest.id, { include: [{ model: DestinationImage, as: 'images' }], order: [[{ model: DestinationImage, as: 'images' }, 'sortOrder', 'ASC']] });
+  withImages = transformDestination(withImages, req);
+  return res.status(201).json({ destination: withImages });
   } catch (e) {
     if (t.finished !== 'commit') await t.rollback();
     // Handle unique constraint errors gracefully
@@ -69,12 +71,14 @@ exports.listDestinations = async (req, res) => {
   const limit = Math.min(parseInt(pageSize, 10) || 12, 100);
   const offset = ((parseInt(page, 10) || 1) - 1) * limit;
   const { rows, count } = await Destination.findAndCountAll({ where, include: [{ model: DestinationImage, as: 'images' }], limit, offset, paranoid, order: [[sortField || 'createdAt', (sortDir || 'desc').toUpperCase()]] });
-  res.json({ data: rows, meta: { page: Number(page), pageSize: limit, total: count, totalPages: Math.ceil(count / limit), sort } });
+  const data = rows.map(r => transformDestination(r, req));
+  res.json({ data, meta: { page: Number(page), pageSize: limit, total: count, totalPages: Math.ceil(count / limit), sort } });
 };
 
 exports.getDestination = async (req, res) => {
-  const dest = await Destination.findByPk(req.params.id, { include: [{ model: DestinationImage, as: 'images' }], paranoid: false, order: [[{ model: DestinationImage, as: 'images' }, 'sortOrder', 'ASC']] });
+  let dest = await Destination.findByPk(req.params.id, { include: [{ model: DestinationImage, as: 'images' }], paranoid: false, order: [[{ model: DestinationImage, as: 'images' }, 'sortOrder', 'ASC']] });
   if (!dest) return res.status(404).json(errorEnvelope('NOT_FOUND', 'Destination not found'));
+  dest = transformDestination(dest, req);
   res.json({ destination: dest });
 };
 
@@ -98,7 +102,8 @@ exports.updateDestination = async (req, res) => {
       }
     }
   }
-  const withImages = await Destination.findByPk(id, { include: [{ model: DestinationImage, as: 'images' }], order: [[{ model: DestinationImage, as: 'images' }, 'sortOrder', 'ASC']] });
+  let withImages = await Destination.findByPk(id, { include: [{ model: DestinationImage, as: 'images' }], order: [[{ model: DestinationImage, as: 'images' }, 'sortOrder', 'ASC']] });
+  withImages = transformDestination(withImages, req);
   res.json({ destination: withImages });
 };
 
@@ -142,7 +147,8 @@ exports.addImages = async (req, res) => {
   const remaining = Math.max(0, 5 - existingCount);
   const toCreate = newImages.slice(0, remaining).map((img, i) => ({ destinationId: id, url: img.url, alt: img.alt || '', sortOrder: img.sortOrder ?? (existingCount + i) }));
   const created = await DestinationImage.bulkCreate(toCreate);
-  res.status(201).json({ images: created });
+  const abs = created.map(img => ({ ...img.toJSON(), url: toAbsoluteUrl(img.url, req) }));
+  res.status(201).json({ images: abs });
 };
 
 exports.deleteImage = async (req, res) => {
@@ -152,3 +158,17 @@ exports.deleteImage = async (req, res) => {
   await img.destroy();
   res.json({ ok: true });
 };
+
+// Helper to normalize and enrich destination object
+function transformDestination(modelInstance, req) {
+  if (!modelInstance) return modelInstance;
+  const json = modelInstance.toJSON ? modelInstance.toJSON() : modelInstance;
+  // normalize highlights if stored as string accidentally
+  if (json.highlights && typeof json.highlights === 'string') {
+    try { json.highlights = JSON.parse(json.highlights); } catch { /* leave as-is */ }
+  }
+  if (!Array.isArray(json.highlights)) json.highlights = [];
+  json.images = (json.images || []).sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)).map(img => ({ ...img, url: toAbsoluteUrl(img.url, req) }));
+  json.coverImage = json.images[0] ? json.images[0].url : null;
+  return json;
+}
