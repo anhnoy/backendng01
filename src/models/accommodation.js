@@ -28,9 +28,19 @@ const Accommodation = sequelize.define('Accommodation', {
     allowNull: true,
   },
   images: {
-    type: DataTypes.JSON,
-    allowNull: false,
-    defaultValue: [],
+    // Use TEXT + manual JSON parse for better cross-dialect compatibility (SQLite tests, MySQL prod)
+    type: DataTypes.TEXT,
+    allowNull: true,
+    get() {
+      const raw = this.getDataValue('images');
+      if (!raw) return [];
+      if (Array.isArray(raw)) return raw; // in case dialect already parsed JSON
+      try { return JSON.parse(raw); } catch { return []; }
+    },
+    set(val) {
+      if (!val || !Array.isArray(val)) return this.setDataValue('images', JSON.stringify([]));
+      this.setDataValue('images', JSON.stringify(val.slice(0,5)));
+    }
   },
 }, {
   tableName: 'accommodations',

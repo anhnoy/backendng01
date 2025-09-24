@@ -74,7 +74,11 @@ async function normalizeAndPersistImages(images) {
 
 function transformAccommodation(row, req) {
   if (!row) return row;
-  const images = Array.isArray(row.images) ? row.images : [];
+  let images = row.images;
+  if (typeof images === 'string') {
+    try { images = JSON.parse(images); } catch { images = []; }
+  }
+  if (!Array.isArray(images)) images = [];
   const imagesAbsolute = images.map(i => toAbsoluteUrl(i, req));
   const coverImage = imagesAbsolute[0] || null;
   return { ...row.toJSON(), images, imagesAbsolute, coverImage };
@@ -119,17 +123,39 @@ exports.update = async (req, res) => {
   try {
     const row = await Accommodation.findByPk(req.params.id);
     if (!row) return sendError(res, 404, 'Not found');
-  const { name, country, type, latitude, longitude, images } = req.body || {};
-  if (images) row.images = await normalizeAndPersistImages(images);
+    const { name, country, type, latitude, longitude, images } = req.body || {};
     if (name !== undefined) row.name = name;
     if (country !== undefined) row.country = country;
     if (type !== undefined) row.type = type;
     if (latitude !== undefined) row.latitude = latitude;
     if (longitude !== undefined) row.longitude = longitude;
+    if (images) row.images = await normalizeAndPersistImages(images);
     await row.save();
     res.json(transformAccommodation(row, req));
   } catch (e) {
     sendError(res, 500, 'Failed to update accommodation');
+  }
+};
+
+// Append images without overwriting all existing (optional helper endpoint)
+exports.appendImages = async (req, res) => {
+  try {
+    const row = await Accommodation.findByPk(req.params.id);
+    if (!row) return sendError(res, 404, 'Not found');
+    const { images } = req.body || {};
+    if (!Array.isArray(images) || images.length === 0) {
+      return sendError(res, 400, 'images array required');
+    }
+    let current = row.images;
+    if (typeof current === 'string') { try { current = JSON.parse(current); } catch { current = []; } }
+    if (!Array.isArray(current)) current = [];
+    const normalized = await normalizeAndPersistImages(images);
+    const merged = [...current, ...normalized].slice(0,5);
+    row.images = merged;
+    await row.save();
+    res.json(transformAccommodation(row, req));
+  } catch (e) {
+    sendError(res, 500, 'Failed to append images');
   }
 };
 

@@ -2,6 +2,9 @@ const { Op } = require('sequelize');
 const Destination = require('../models/destination');
 const DestinationImage = require('../models/destinationImage');
 const { toAbsoluteUrl } = require('../utils/url');
+const path = require('path');
+const fs = require('fs');
+const crypto = require('crypto');
 
 function errorEnvelope(code, message, details) {
   return { error: { code, message, ...(details ? { details } : {}) } };
@@ -24,12 +27,78 @@ function validateDestination(body, isCreate = true) {
   return null;
 }
 
+// Sanitize & allowlist sort parameter
+function sanitizeSort(raw) {
+  const def = { field: 'createdAt', dir: 'DESC' };
+  if (!raw) return def;
+  const [f, d] = String(raw).split(':');
+  const allowed = ['createdAt','updatedAt','name','countryCode'];
+  const field = allowed.includes(f) ? f : def.field;
+  const dir = (d || 'DESC').toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+  return { field, dir };
+}
+
+function normalizeHighlightsInput(raw) {
+  if (!raw) return [];
+  let arr = [];
+  if (Array.isArray(raw)) arr = raw; else if (typeof raw === 'string') {
+    try { const parsed = JSON.parse(raw); if (Array.isArray(parsed)) arr = parsed; } catch { /* ignore */ }
+  }
+  return arr
+    .filter(v => typeof v === 'string')
+    .map(s => s.trim())
+    .filter(Boolean)
+    .slice(0, 10)
+    .map(s => s.slice(0, 120));
+}
+
+async function persistDataUrl(dataUrl) {
+  try {
+    const match = dataUrl.match(/^data:(image\/(png|jpe?g|gif|webp));base64,(.+)$/i);
+    if (!match) return '';
+    const mime = match[1];
+    const ext = mime.endsWith('jpeg') || mime.endsWith('jpg') ? 'jpg' : mime.split('/')[1];
+    const base64 = match[3];
+    const buffer = Buffer.from(base64, 'base64');
+    const hash = crypto.createHash('md5').update(buffer).digest('hex');
+    const uploadsDir = path.join(process.cwd(), 'uploads');
+    await fs.promises.mkdir(uploadsDir, { recursive: true });
+    const filePath = path.join(uploadsDir, `${hash}.${ext}`);
+    try { await fs.promises.access(filePath, fs.constants.F_OK); } catch { await fs.promises.writeFile(filePath, buffer); }
+    return `/uploads/${hash}`;
+  } catch { return ''; }
+}
+
+async function normalizeIncomingImages(images) {
+  if (!Array.isArray(images)) return [];
+  const out = [];
+  for (let i = 0; i < images.length && out.length < 5; i++) {
+    const img = images[i];
+    const url = typeof img === 'string' ? img : (img && (img.url || img.src));
+    if (!url) continue;
+    let finalUrl = url;
+    if (url.startsWith('data:image')) {
+      const saved = await persistDataUrl(url);
+      if (!saved) continue;
+      finalUrl = saved;
+    } else if (url.startsWith('/uploads/')) {
+      const id = path.basename(url).split('.')[0];
+      finalUrl = `/uploads/${id}`;
+    } else if (url.startsWith('uploads/')) {
+      const id = path.basename(url).split('.')[0];
+      finalUrl = `/uploads/${id}`;
+    }
+    out.push({ ... (typeof img === 'object' && !Array.isArray(img) ? img : {}), url: finalUrl, sortOrder: (typeof img === 'object' && img.sortOrder != null) ? img.sortOrder : i });
+  }
+  return out;
+}
+
 exports.createDestination = async (req, res) => {
   const err = validateDestination(req.body, true);
   if (err) return res.status(400).json(err);
   const t = await Destination.sequelize.transaction();
   try {
-    const { name, description, article, countryCode, countryName, highlights = [], images = [] } = req.body;
+  const { name, description, article, countryCode, countryName, highlights = [], images = [] } = req.body;
     // unique per name+countryCode on active records
     const dup = await Destination.findOne({ where: { name, countryCode }, transaction: t });
     if (dup) {
@@ -37,10 +106,12 @@ exports.createDestination = async (req, res) => {
       return res.status(409).json(errorEnvelope('DUPLICATE', 'Destination name already exists in this country'));
     }
 
-    const dest = await Destination.create({ name, description, article, countryCode, countryName, highlights }, { transaction: t });
+    const normHighlights = normalizeHighlightsInput(highlights);
+    const dest = await Destination.create({ name, description, article, countryCode, countryName, highlights: normHighlights }, { transaction: t });
     if (Array.isArray(images) && images.length) {
-      const imgs = images.slice(0, 5).map((img, i) => ({ destinationId: dest.id, url: img.url, alt: img.alt || '', sortOrder: img.sortOrder ?? i }));
-      await DestinationImage.bulkCreate(imgs, { transaction: t });
+      const normalized = await normalizeIncomingImages(images);
+      const imgs = normalized.slice(0, 5).map((img, i) => ({ destinationId: dest.id, url: img.url, alt: img.alt || '', sortOrder: img.sortOrder ?? i }));
+      if (imgs.length) await DestinationImage.bulkCreate(imgs, { transaction: t });
     }
     await t.commit();
   let withImages = await Destination.findByPk(dest.id, { include: [{ model: DestinationImage, as: 'images' }], order: [[{ model: DestinationImage, as: 'images' }, 'sortOrder', 'ASC']] });
@@ -67,12 +138,12 @@ exports.listDestinations = async (req, res) => {
   }
   if (country) where.countryCode = country;
   const paranoid = status !== 'deleted';
-  const [sortField, sortDir] = String(sort).split(':');
+  const { field: sortField, dir: sortDir } = sanitizeSort(sort);
   const limit = Math.min(parseInt(pageSize, 10) || 12, 100);
   const offset = ((parseInt(page, 10) || 1) - 1) * limit;
-  const { rows, count } = await Destination.findAndCountAll({ where, include: [{ model: DestinationImage, as: 'images' }], limit, offset, paranoid, order: [[sortField || 'createdAt', (sortDir || 'desc').toUpperCase()]] });
+  const { rows, count } = await Destination.findAndCountAll({ where, include: [{ model: DestinationImage, as: 'images' }], limit, offset, paranoid, order: [[sortField, sortDir]] });
   const data = rows.map(r => transformDestination(r, req));
-  res.json({ data, meta: { page: Number(page), pageSize: limit, total: count, totalPages: Math.ceil(count / limit), sort } });
+  res.json({ data, meta: { page: Number(page), pageSize: limit, total: count, totalPages: Math.ceil(count / limit), sort: `${sortField}:${sortDir.toLowerCase()}` } });
 };
 
 exports.getDestination = async (req, res) => {
@@ -86,25 +157,40 @@ exports.updateDestination = async (req, res) => {
   const id = req.params.id;
   const err = validateDestination(req.body, false);
   if (err) return res.status(400).json(err);
-  const dest = await Destination.findByPk(id, { include: [{ model: DestinationImage, as: 'images' }] });
-  if (!dest) return res.status(404).json(errorEnvelope('NOT_FOUND', 'Destination not found'));
-  const { name, description, article, countryCode, countryName, highlights, images } = req.body;
-  await dest.update({ name, description, article, countryCode, countryName, highlights });
-  if (Array.isArray(images)) {
-    const toKeepIds = images.filter(i => i.id).map(i => i.id);
-    await DestinationImage.destroy({ where: { destinationId: id, ...(toKeepIds.length ? { id: { [Op.notIn]: toKeepIds } } : {}) } });
-    for (let i = 0; i < images.length; i++) {
-      const img = images[i];
-      if (img.id) {
-        await DestinationImage.update({ url: img.url, alt: img.alt || '', sortOrder: img.sortOrder ?? i }, { where: { id: img.id, destinationId: id } });
-      } else {
-        await DestinationImage.create({ destinationId: Number(id), url: img.url, alt: img.alt || '', sortOrder: img.sortOrder ?? i });
+  const existing = await Destination.findByPk(id, { include: [{ model: DestinationImage, as: 'images' }] });
+  if (!existing) return res.status(404).json(errorEnvelope('NOT_FOUND', 'Destination not found'));
+  const t = await Destination.sequelize.transaction();
+  try {
+    const { name, description, article, countryCode, countryName, highlights, images } = req.body;
+    const patch = {};
+    if (name !== undefined) patch.name = name;
+    if (description !== undefined) patch.description = description;
+    if (article !== undefined) patch.article = article;
+    if (countryCode !== undefined) patch.countryCode = countryCode;
+    if (countryName !== undefined) patch.countryName = countryName;
+    if (highlights !== undefined) patch.highlights = normalizeHighlightsInput(highlights);
+    if (Object.keys(patch).length) await existing.update(patch, { transaction: t });
+    if (Array.isArray(images)) {
+      const normalized = await normalizeIncomingImages(images);
+      const keepIds = normalized.filter(i => i.id).map(i => i.id);
+      await DestinationImage.destroy({ where: { destinationId: id, ...(keepIds.length ? { id: { [Op.notIn]: keepIds } } : {}) }, transaction: t });
+      for (let i = 0; i < normalized.length; i++) {
+        const img = normalized[i];
+        if (img.id) {
+          await DestinationImage.update({ url: img.url, alt: img.alt || '', sortOrder: img.sortOrder ?? i }, { where: { id: img.id, destinationId: id }, transaction: t });
+        } else {
+          await DestinationImage.create({ destinationId: Number(id), url: img.url, alt: img.alt || '', sortOrder: img.sortOrder ?? i }, { transaction: t });
+        }
       }
     }
+    await t.commit();
+    let withImages = await Destination.findByPk(id, { include: [{ model: DestinationImage, as: 'images' }], order: [[{ model: DestinationImage, as: 'images' }, 'sortOrder', 'ASC']] });
+    withImages = transformDestination(withImages, req);
+    return res.json({ destination: withImages });
+  } catch (e) {
+    if (t.finished !== 'commit') await t.rollback();
+    return res.status(500).json(errorEnvelope('SERVER_ERROR', 'Failed to update destination'));
   }
-  let withImages = await Destination.findByPk(id, { include: [{ model: DestinationImage, as: 'images' }], order: [[{ model: DestinationImage, as: 'images' }, 'sortOrder', 'ASC']] });
-  withImages = transformDestination(withImages, req);
-  res.json({ destination: withImages });
 };
 
 exports.deleteDestination = async (req, res) => {
@@ -140,15 +226,16 @@ exports.addImages = async (req, res) => {
       // ignore parse error and treat as no extra JSON images
     }
   }
-  const newImages = [];
-  for (let i = 0; i < files.length; i++) newImages.push({ url: `/uploads/${files[i].filename}`, sortOrder: i });
-  for (let i = 0; i < jsonImages.length; i++) newImages.push({ url: jsonImages[i].url, alt: jsonImages[i].alt, sortOrder: jsonImages[i].sortOrder ?? i });
+  const combined = [];
+  for (let i = 0; i < files.length; i++) combined.push({ url: `/uploads/${files[i].filename}`, sortOrder: i });
+  for (let i = 0; i < jsonImages.length; i++) combined.push({ url: jsonImages[i].url, alt: jsonImages[i].alt, sortOrder: jsonImages[i].sortOrder ?? (files.length + i) });
+  const normalized = await normalizeIncomingImages(combined);
   const existingCount = await DestinationImage.count({ where: { destinationId: id } });
   const remaining = Math.max(0, 5 - existingCount);
-  const toCreate = newImages.slice(0, remaining).map((img, i) => ({ destinationId: id, url: img.url, alt: img.alt || '', sortOrder: img.sortOrder ?? (existingCount + i) }));
+  const toCreate = normalized.slice(0, remaining).map((img, i) => ({ destinationId: id, url: img.url, alt: img.alt || '', sortOrder: img.sortOrder ?? (existingCount + i) }));
   const created = await DestinationImage.bulkCreate(toCreate);
   const abs = created.map(img => ({ ...img.toJSON(), url: toAbsoluteUrl(img.url, req) }));
-  res.status(201).json({ images: abs });
+  return res.status(201).json({ images: abs });
 };
 
 exports.deleteImage = async (req, res) => {
