@@ -67,6 +67,7 @@ app.use('/api/accommodations', require('./routes/accommodation'));
 app.use('/api/travel-purposes', require('./routes/travelPurpose'));
 app.use('/api/destinations', require('./routes/destination'));
 app.use('/api/foods', require('./routes/food'));
+app.use('/api/faq', require('./routes/faq'));
 
 
 // Sync DB and start server
