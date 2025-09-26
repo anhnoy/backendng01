@@ -67,14 +67,16 @@ app.use('/api/accommodations', require('./routes/accommodation'));
 app.use('/api/travel-purposes', require('./routes/travelPurpose'));
 app.use('/api/destinations', require('./routes/destination'));
 app.use('/api/foods', require('./routes/food'));
+// Re-enable FAQ and Contact APIs
 app.use('/api/faq', require('./routes/faq'));
+app.use('/api/contact', require('./routes/contact'));
 
 
 // Sync DB and start server
 // ใช้ force:true เฉพาะตอน test เท่านั้น เพื่อไม่ให้ล้างข้อมูลใน dev/prod
-// ใช้ alter:true เพื่อปรับ schema โดยไม่ลบข้อมูล
+// ปิดการ alter อัตโนมัติใน dev/prod เพื่อหลีกเลี่ยงปัญหา index/unique ซ้ำซ้อนใน MySQL
 const isTest = process.env.NODE_ENV === 'test';
-const syncOptions = isTest ? { force: true } : { alter: true };
+const syncOptions = isTest ? { force: true } : {};
 
 sequelize.sync(syncOptions).then(() => {
   console.log('Database synced', syncOptions);
