@@ -30,6 +30,7 @@ const PORT = process.env.PORT || 3000;
 
 const sequelize = require('./sequelize');
 const User = require('./models/user');
+const Quotation = require('./models/quotation');
 // โหลดความสัมพันธ์ของโมเดล (Destination <-> DestinationImage)
 require('./models/relations');
 require('./models/activityRelations');
@@ -70,16 +71,27 @@ app.use('/api/foods', require('./routes/food'));
 // Re-enable FAQ and Contact APIs
 app.use('/api/faq', require('./routes/faq'));
 app.use('/api/contact', require('./routes/contact'));
+app.use('/api/quotations', require('./routes/quotation'));
 
 
 // Sync DB and start server
 // ใช้ force:true เฉพาะตอน test เท่านั้น เพื่อไม่ให้ล้างข้อมูลใน dev/prod
-// ปิดการ alter อัตโนมัติใน dev/prod เพื่อหลีกเลี่ยงปัญหา index/unique ซ้ำซ้อนใน MySQL
+// เพิ่ม option DB_SYNC_ALTER=true เพื่อให้ Sequelize alter ตารางอัตโนมัติกรณี schema เปลี่ยน
 const isTest = process.env.NODE_ENV === 'test';
 const syncOptions = isTest ? { force: true } : {};
+if (!isTest && String(process.env.DB_SYNC_ALTER).toLowerCase() === 'true') {
+  syncOptions.alter = true;
+}
 
-sequelize.sync(syncOptions).then(() => {
+sequelize.sync(syncOptions).then(async () => {
   console.log('Database synced', syncOptions);
+  // Optional: alter sync only quotations table to add missing columns safely
+  if (String(process.env.DB_SYNC_QUOTATION_ALTER).toLowerCase() === 'true') {
+    console.log('Running alter-sync for quotations table only...');
+    await Quotation.sync({ alter: true });
+    console.log('Alter-sync for quotations done.');
+  }
+
   app.listen(PORT, () => {
     console.log(`Server is running on port ${PORT}`);
   });
