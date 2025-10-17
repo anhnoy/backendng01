@@ -50,6 +50,9 @@ const Quotation = sequelize.define('Quotation', {
   dinnerTotal: { type: DataTypes.DECIMAL(12,2), allowNull: false, defaultValue: 0 },
   totalFoodPrice: { type: DataTypes.DECIMAL(12,2), allowNull: false, defaultValue: 0 },
 
+  // Activities (optional payload from FE)
+  activities: { type: DataTypes.JSON, allowNull: true, defaultValue: null },
+
   // Package
   packagePrice: { type: DataTypes.DECIMAL(12,2), allowNull: false, defaultValue: 0 },
   discountPercent: { type: DataTypes.DECIMAL(5,2), allowNull: false, defaultValue: 0 },
@@ -66,6 +69,7 @@ const Quotation = sequelize.define('Quotation', {
   travelerTotal: { type: DataTypes.DECIMAL(12,2), allowNull: false, defaultValue: 0 },
   roomTotal: { type: DataTypes.DECIMAL(12,2), allowNull: false, defaultValue: 0 },
   flightTotal: { type: DataTypes.DECIMAL(12,2), allowNull: false, defaultValue: 0 },
+  activityTotal: { type: DataTypes.DECIMAL(12,2), allowNull: false, defaultValue: 0 },
   subtotal: { type: DataTypes.DECIMAL(12,2), allowNull: false, defaultValue: 0 },
   discountAmount: { type: DataTypes.DECIMAL(12,2), allowNull: false, defaultValue: 0 },
   finalPrice: { type: DataTypes.DECIMAL(12,2), allowNull: false, defaultValue: 0 },

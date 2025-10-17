@@ -72,6 +72,7 @@ app.use('/api/foods', require('./routes/food'));
 app.use('/api/faq', require('./routes/faq'));
 app.use('/api/contact', require('./routes/contact'));
 app.use('/api/quotations', require('./routes/quotation'));
+app.use('/api/tours', require('./routes/tour'));
 
 
 // Sync DB and start server

@@ -2,6 +2,20 @@ const { Op } = require('sequelize');
 const Quotation = require('../models/quotation');
 const { computeTotals } = require('../utils/quotationTotals');
 
+// Safely coerce value to array: accepts real arrays or JSON string arrays
+function toArray(val) {
+  if (Array.isArray(val)) return val;
+  if (typeof val === 'string') {
+    try {
+      const parsed = JSON.parse(val);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (_) {
+      return [];
+    }
+  }
+  return [];
+}
+
 function normalizeCountryCode(country) {
   if (!country) return 'TH';
   const s = String(country).toLowerCase();
@@ -35,7 +49,7 @@ function toDoc(row) {
     quotationNumber: q.quotationNumber || '',
     status,
     countryCode: q.countryCode,
-    attractions: Array.isArray(q.attractions) ? q.attractions : [],
+  attractions: toArray(q.attractions),
     purpose: q.purpose || '',
     dateStart: q.dateStart,
     dateEnd: q.dateEnd,
@@ -76,7 +90,7 @@ function toDoc(row) {
       infantLapPrice: Number(q.flightInfantLapPrice || 0) || undefined
     },
     food: {
-      mealOptions: Array.isArray(q.mealOptions) ? q.mealOptions : [],
+      mealOptions: toArray(q.mealOptions),
       totals: {
         breakfast: Number(q.breakfastTotal || 0),
         lunch: Number(q.lunchTotal || 0),
@@ -84,21 +98,27 @@ function toDoc(row) {
         totalFoodPrice: Number(q.totalFoodPrice || 0)
       }
     },
+    // Optional activities block echoed to FE
+    activities: q.activities || undefined,
     package: {
       packagePrice: Number(q.packagePrice || 0),
       discountPercent: Number(q.discountPercent || 0),
       additionalCost: Number(q.additionalCost || 0)
     },
     lists: {
-      includedItems: Array.isArray(q.includedItems) ? q.includedItems : [],
-      excludedItems: Array.isArray(q.excludedItems) ? q.excludedItems : []
+      includedItems: toArray(q.includedItems),
+      excludedItems: toArray(q.excludedItems)
     },
+    // Top-level aliases for convenience (in addition to lists)
+    includedItems: toArray(q.includedItems),
+    excludedItems: toArray(q.excludedItems),
     additional: q.additional || undefined,
     calculated: {
       travelerTotal: Number(q.travelerTotal || 0),
       roomTotal: Number(q.roomTotal || 0),
       flightTotal: Number(q.flightTotal || 0),
       foodTotal: Number(q.totalFoodPrice || 0),
+  activityTotal: Number(q.activityTotal || 0),
       subtotal: Number(q.subtotal || 0),
       discountPercent: Number(q.discountPercent || 0),
       discountAmount: Number(q.discountAmount || 0),
@@ -125,9 +145,24 @@ async function create(req, res) {
     payload.children = Number(payload.children || 0);
     payload.infants = Number(payload.infants || 0);
     payload.mealOptions = Array.isArray(payload.mealOptions) ? payload.mealOptions : (payload.mealOptions ? [payload.mealOptions] : []);
+    // Accept array or JSON string for included/excluded items
+    if (typeof payload.includedItems === 'string') {
+      try { payload.includedItems = JSON.parse(payload.includedItems); } catch (_) { payload.includedItems = []; }
+    }
+    if (typeof payload.excludedItems === 'string') {
+      try { payload.excludedItems = JSON.parse(payload.excludedItems); } catch (_) { payload.excludedItems = []; }
+    }
     payload.includedItems = Array.isArray(payload.includedItems) ? payload.includedItems : [];
     payload.excludedItems = Array.isArray(payload.excludedItems) ? payload.excludedItems : [];
     payload.attractions = Array.isArray(payload.attractions) ? payload.attractions : [];
+    // Activities: allow object or JSON string, and fold total into activityTotal for totals
+    if (typeof payload.activities === 'string') {
+      try { payload.activities = JSON.parse(payload.activities); } catch(_) { payload.activities = null; }
+    }
+    if (payload.activities && typeof payload.activities === 'object') {
+      const maybeTotal = Number(payload.activities.total);
+      if (Number.isFinite(maybeTotal)) payload.activityTotal = maybeTotal;
+    }
 
     // Map nested fields from FE to flat columns
     if (payload.customer && typeof payload.customer === 'object') {
@@ -182,8 +217,12 @@ async function create(req, res) {
       payload.additionalCost = Number(payload.package.additionalCost ?? payload.additionalCost ?? 0);
     }
     if (payload.lists && typeof payload.lists === 'object') {
-      payload.includedItems = Array.isArray(payload.lists.includedItems) ? payload.lists.includedItems : (payload.includedItems || []);
-      payload.excludedItems = Array.isArray(payload.lists.excludedItems) ? payload.lists.excludedItems : (payload.excludedItems || []);
+      let li = payload.lists.includedItems;
+      let le = payload.lists.excludedItems;
+      if (typeof li === 'string') { try { li = JSON.parse(li); } catch(_) { li = undefined; } }
+      if (typeof le === 'string') { try { le = JSON.parse(le); } catch(_) { le = undefined; } }
+      payload.includedItems = Array.isArray(li) ? li : (payload.includedItems || []);
+      payload.excludedItems = Array.isArray(le) ? le : (payload.excludedItems || []);
     }
 
     const errors = validateBody({
@@ -307,14 +346,40 @@ async function update(req, res) {
         payload.totalFoodPrice = Number(payload.food.totals.totalFoodPrice ?? q.totalFoodPrice);
       }
     }
+    if (typeof payload.activities === 'string') {
+      try { payload.activities = JSON.parse(payload.activities); } catch(_) { payload.activities = q.activities; }
+    }
+    if (payload.activities && typeof payload.activities === 'object' && 'total' in payload.activities) {
+      const maybeTotal2 = Number(payload.activities.total);
+      if (Number.isFinite(maybeTotal2)) payload.activityTotal = maybeTotal2;
+    }
     if (payload.package && typeof payload.package === 'object') {
       payload.packagePrice = Number(payload.package.packagePrice ?? q.packagePrice);
       payload.discountPercent = Number(payload.package.discountPercent ?? q.discountPercent);
       payload.additionalCost = Number(payload.package.additionalCost ?? q.additionalCost);
     }
     if (payload.lists && typeof payload.lists === 'object') {
-      payload.includedItems = Array.isArray(payload.lists.includedItems) ? payload.lists.includedItems : q.includedItems;
-      payload.excludedItems = Array.isArray(payload.lists.excludedItems) ? payload.lists.excludedItems : q.excludedItems;
+      let li2 = payload.lists.includedItems;
+      let le2 = payload.lists.excludedItems;
+      if (typeof li2 === 'string') { try { li2 = JSON.parse(li2); } catch(_) { li2 = undefined; } }
+      if (typeof le2 === 'string') { try { le2 = JSON.parse(le2); } catch(_) { le2 = undefined; } }
+      payload.includedItems = Array.isArray(li2) ? li2 : q.includedItems;
+      payload.excludedItems = Array.isArray(le2) ? le2 : q.excludedItems;
+    }
+    // Also accept top-level arrays for included/excluded items
+    if (Array.isArray(payload.includedItems)) {
+      // keep as provided
+    } else if (typeof payload.includedItems === 'string') {
+      try { const arr = JSON.parse(payload.includedItems); if (Array.isArray(arr)) payload.includedItems = arr; else payload.includedItems = q.includedItems; } catch(_) { payload.includedItems = q.includedItems; }
+    } else if ('includedItems' in payload && payload.includedItems == null) {
+      payload.includedItems = q.includedItems;
+    }
+    if (Array.isArray(payload.excludedItems)) {
+      // keep as provided
+    } else if (typeof payload.excludedItems === 'string') {
+      try { const arr = JSON.parse(payload.excludedItems); if (Array.isArray(arr)) payload.excludedItems = arr; else payload.excludedItems = q.excludedItems; } catch(_) { payload.excludedItems = q.excludedItems; }
+    } else if ('excludedItems' in payload && payload.excludedItems == null) {
+      payload.excludedItems = q.excludedItems;
     }
     // If any pricing fields changed, recompute totals
     const pricingKeys = ['adults','children','infants','pricePerAdult','pricePerChild','pricePerInfant','adultRooms','childRooms','adultRoomPrice','childRoomPrice','flightIncluded','flightAdultPrice','flightChildPrice','flightInfantType','flightInfantSeatPrice','flightInfantLapPrice','totalFoodPrice','packagePrice','discountPercent','additionalCost'];

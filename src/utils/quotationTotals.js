@@ -17,7 +17,18 @@ function computeTotals(input) {
   const childRooms = safeNum(input.childRooms);
   const adultRoomPrice = safeNum(input.adultRoomPrice);
   const childRoomPrice = safeNum(input.childRoomPrice);
-  const roomTotal = adultRooms * adultRoomPrice + childRooms * childRoomPrice;
+  // Nights = inclusive days - 1
+  let nights = 0;
+  try {
+    const ds = input.dateStart ? new Date(input.dateStart) : null;
+    const de = input.dateEnd ? new Date(input.dateEnd) : null;
+    if (ds && de && !isNaN(ds) && !isNaN(de)) {
+      const diffMs = de - ds;
+      const diffDays = Math.floor(diffMs / (24 * 60 * 60 * 1000));
+      nights = Math.max(0, diffDays);
+    }
+  } catch (_) { nights = 0; }
+  const roomTotal = (adultRooms * adultRoomPrice + childRooms * childRoomPrice) * nights;
 
   let flightTotal = 0;
   const flightIncluded = !!input.flightIncluded;
@@ -35,8 +46,10 @@ function computeTotals(input) {
   }
 
   const totalFoodPrice = safeNum(input.totalFoodPrice);
+  const activityTotal = safeNum(input.activityTotal) || safeNum(input.activities?.total);
   const packagePrice = safeNum(input.packagePrice);
-  const subtotal = travelerTotal + roomTotal + flightTotal + totalFoodPrice + packagePrice;
+  // FE expects subtotal without packagePrice but including activityTotal
+  const subtotal = travelerTotal + roomTotal + flightTotal + totalFoodPrice + activityTotal;
   const discountPercent = Math.min(100, Math.max(0, safeNum(input.discountPercent)));
   const discountAmount = subtotal * (discountPercent / 100);
   const additionalCost = safeNum(input.additionalCost);
@@ -46,6 +59,7 @@ function computeTotals(input) {
     travelerTotal,
     roomTotal,
     flightTotal,
+    activityTotal,
     subtotal,
     discountAmount,
     finalPrice,
