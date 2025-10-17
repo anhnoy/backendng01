@@ -123,8 +123,10 @@ function validateTourData(data) {
     errors.push('Package price must be non-negative');
   }
   
-  if (data.discountPercent && (data.discountPercent < 0 || data.discountPercent > 100)) {
-    errors.push('Discount percent must be between 0 and 100');
+  // รองรับทั้ง discount และ discountPercent จาก Frontend
+  const discountValue = data.discount !== undefined ? data.discount : data.discountPercent;
+  if (discountValue && (discountValue < 0 || discountValue > 100)) {
+    errors.push('ส่วนลดต้องอยู่ระหว่าง 0-100 เปอร์เซ็นต์');
   }
   
   return errors;
@@ -160,7 +162,9 @@ function toDoc(row) {
     excludedItems: toArray(t.excludedItems),
     packagePrice: Number(t.packagePrice || 0),
     discountPercent: Number(t.discountPercent || 0),
+    discount: Number(t.discountPercent || 0), // Frontend alias
     additionalCost: Number(t.additionalCost || 0),
+    finalPrice: Number(t.finalPrice || 0),
     gallery: toArray(t.gallery),
     notes: t.notes || undefined,
     createdAt: t.createdAt,
@@ -190,6 +194,10 @@ async function create(req, res) {
     body.excludedItems = toArray(body.excludedItems);
     body.gallery = toArray(body.gallery);
     if (body.maxGuests !== undefined) body.maxGuests = Number(body.maxGuests) || 10;
+    
+    // Map Frontend price fields to Backend
+    if (body.discount !== undefined) body.discountPercent = Number(body.discount);
+    if (body.finalPrice !== undefined) body.finalPrice = Number(body.finalPrice);
     
     // Generate unique slug
     body.slug = await ensureUniqueSlug(body.title, body.country || body.countryCode);
@@ -259,6 +267,9 @@ async function patch(req, res) {
       if (k in body) body[k] = toArray(body[k]);
     });
     if (body.maxGuests !== undefined) body.maxGuests = Number(body.maxGuests);
+    // Map Frontend price fields for PATCH
+    if (body.discount !== undefined) body.discountPercent = Number(body.discount);
+    if (body.finalPrice !== undefined) body.finalPrice = Number(body.finalPrice);
     await t.update(body);
     await t.reload();
     return res.json(toDoc(t));
@@ -287,6 +298,9 @@ async function update(req, res) {
       if (k in body) body[k] = toArray(body[k]);
     });
     if (body.maxGuests !== undefined) body.maxGuests = Number(body.maxGuests);
+    // Map Frontend price fields for PUT
+    if (body.discount !== undefined) body.discountPercent = Number(body.discount);
+    if (body.finalPrice !== undefined) body.finalPrice = Number(body.finalPrice);
     await t.update(body);
     await t.reload();
     return res.json(toDoc(t));

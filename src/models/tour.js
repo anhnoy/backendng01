@@ -58,6 +58,9 @@ const Tour = sequelize.define('Tour', {
   gallery: { type: DataTypes.JSON, allowNull: false, defaultValue: [] },
   notes: { type: DataTypes.TEXT, allowNull: true },
   maxGuests: { type: DataTypes.INTEGER, allowNull: true, defaultValue: 10 },
+  
+  // Additional price fields for frontend compatibility
+  finalPrice: { type: DataTypes.DECIMAL(10, 2), allowNull: true, defaultValue: 0 },
 }, {
   tableName: 'tours',
   paranoid: true,
