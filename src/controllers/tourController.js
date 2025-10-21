@@ -1,4 +1,5 @@
 const { Op } = require('sequelize');
+const crypto = require('crypto');
 const Tour = require('../models/tour');
 
 function toArray(v) {
@@ -91,6 +92,53 @@ function normalizeDayPlans(dayPlans) {
   });
 }
 
+// Gallery helpers: normalize gallery entries to objects { id, url, source, attractionId?, caption }
+function generateImageId(url) {
+  try {
+    if (!url) return crypto.randomBytes(8).toString('hex');
+    const base = String(url).split('/').pop().split('.')[0];
+    if (base) return base;
+    return crypto.createHash('md5').update(String(url)).digest('hex').slice(0, 16);
+  } catch (e) {
+    return crypto.randomBytes(8).toString('hex');
+  }
+}
+
+function normalizeGallery(raw) {
+  if (!raw) return [];
+  let arr = raw;
+  if (typeof raw === 'string') {
+    try { arr = JSON.parse(raw); } catch (_) { arr = [raw]; }
+  }
+  if (!Array.isArray(arr)) return [];
+  const out = [];
+  const seen = new Set();
+  for (const item of arr) {
+    if (!item) continue;
+    if (typeof item === 'string') {
+      const id = generateImageId(item);
+      if (seen.has(id)) continue;
+      seen.add(id);
+      out.push({ id, url: item, source: item.startsWith('/uploads/') ? 'upload' : 'external', caption: null });
+      continue;
+    }
+    if (typeof item === 'object') {
+      const url = item.url || item.src || item.path || '';
+      const id = item.id || generateImageId(url || JSON.stringify(item));
+      if (seen.has(id)) continue;
+      seen.add(id);
+      out.push({ id, url, source: item.source || (String(url).startsWith('/uploads/') ? 'upload' : 'external'), attractionId: item.attractionId || null, caption: item.caption || null });
+    }
+  }
+  return out;
+}
+
+function getGalleryObjects(value) {
+  if (!value) return [];
+  if (Array.isArray(value)) return normalizeGallery(value);
+  try { const parsed = JSON.parse(value); return normalizeGallery(parsed); } catch { return normalizeGallery(value); }
+}
+
 function validateTourData(data) {
   const errors = [];
   
@@ -164,13 +212,34 @@ function toDoc(row) {
     discountPercent: Number(t.discountPercent || 0),
     discount: Number(t.discountPercent || 0), // Frontend alias
     additionalCost: Number(t.additionalCost || 0),
-    finalPrice: Number(t.finalPrice || 0),
-    gallery: toArray(t.gallery),
+  finalPrice: Number(t.finalPrice || 0),
+  gallery: getGalleryObjects(t.gallery),
     notes: t.notes || undefined,
     createdAt: t.createdAt,
     updatedAt: t.updatedAt,
     deletedAt: t.deletedAt || null,
   };
+}
+
+async function deleteImage(req, res) {
+  try {
+    const { id, imageId } = req.params;
+    const t = await Tour.findByPk(id);
+    if (!t) return res.status(404).json({ error: 'Not found' });
+
+    const gallery = getGalleryObjects(t.gallery);
+    const idx = gallery.findIndex(g => String(g.id) === String(imageId));
+    if (idx === -1) return res.status(404).json({ error: 'Image not found' });
+
+    gallery.splice(idx, 1);
+    // persist as JSON array of objects
+    t.gallery = gallery;
+    await t.save();
+    return res.json({ success: true, gallery });
+  } catch (err) {
+    console.error('tour.deleteImage error', err);
+    return res.status(500).json({ error: 'Internal Server Error' });
+  }
 }
 
 async function create(req, res) {
@@ -338,4 +407,4 @@ async function remove(req, res) {
   }
 }
 
-module.exports = { create, getById, list, patch, update, publish, remove };
+module.exports = { create, getById, list, patch, update, publish, remove, deleteImage };

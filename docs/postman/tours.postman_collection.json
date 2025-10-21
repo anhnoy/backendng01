@@ -1,0 +1,114 @@
+{
+  "info": {
+    "name": "Tours API - Update & Gallery",
+    "_postman_id": "b5f4a3c8-0001-4a2b-9f4d-000000000001",
+    "description": "Collection with sample requests for PATCH/PUT tour update and DELETE image (gallery) operations.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Get Tour by ID",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{token}}", "type": "text" }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/tours/:id",
+          "host": ["{{baseUrl}}"],
+          "path": ["api","tours",":id"]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "PATCH - Partial update tour",
+      "request": {
+        "method": "PATCH",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "Authorization", "value": "Bearer {{token}}", "type": "text" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"title\": \"Amazing Luang Prabang Tour - updated\",\n  \"packagePrice\": 12500,\n  \"discount\": 10,\n  \"finalPrice\": 11250,\n  \"maxGuests\": 12,\n  \"gallery\": [\n    { \"url\": \"/uploads/new-image-01.jpg\", \"source\": \"upload\", \"caption\": \"Sunset at Mekong\" },\n    { \"id\": \"e17b028fdf86\", \"url\": \"/uploads/old-image-02.jpg\", \"source\": \"upload\", \"caption\": \"Old caption updated\" }\n  ]\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/tours/:id",
+          "host": ["{{baseUrl}}"],
+          "path": ["api","tours",":id"]
+        }
+      },
+      "response": [
+        {
+          "name": "Example Success",
+          "originalRequest": {
+            "method": "PATCH",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/tours/123" }
+          },
+          "status": "OK",
+          "code": 200,
+          "_body": "{...updated tour object...}"
+        }
+      ]
+    },
+    {
+      "name": "PUT - Full update tour",
+      "request": {
+        "method": "PUT",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "Authorization", "value": "Bearer {{token}}", "type": "text" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"title\": \"Amazing Luang Prabang Tour - FULL\",\n  \"country\": \"Laos\",\n  \"dateStart\": \"2025-12-01\",\n  \"dateEnd\": \"2025-12-03\",\n  \"packagePrice\": 13000,\n  \"discount\": 5,\n  \"additionalCost\": 200,\n  \"finalPrice\": 12350,\n  \"maxGuests\": 16,\n  \"gallery\": [\n    { \"id\": \"img-1\", \"url\": \"/uploads/img-1.jpg\", \"source\": \"upload\", \"caption\": \"Arrival\" },\n    { \"id\": \"img-2\", \"url\": \"/uploads/img-2.jpg\", \"source\": \"upload\", \"caption\": \"Temple\" }\n  ]\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/tours/:id",
+          "host": ["{{baseUrl}}"],
+          "path": ["api","tours",":id"]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "DELETE - Remove image from tour gallery",
+      "request": {
+        "method": "DELETE",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{token}}", "type": "text" }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/tours/:id/images/:imageId",
+          "host": ["{{baseUrl}}"],
+          "path": ["api","tours",":id","images",":imageId"]
+        }
+      },
+      "response": [
+        {
+          "name": "Example Success",
+          "originalRequest": { "method": "DELETE", "header": [], "url": { "raw": "{{baseUrl}}/api/tours/123/images/e17b028fdf86" } },
+          "status": "OK",
+          "code": 200,
+          "_body": "{ \"success\": true, \"gallery\": [ /* updated gallery */ ] }"
+        },
+        {
+          "name": "Example NotFound",
+          "originalRequest": { "method": "DELETE", "header": [], "url": { "raw": "{{baseUrl}}/api/tours/123/images/missing" } },
+          "status": "Not Found",
+          "code": 404,
+          "_body": "{ \"error\": \"Image not found\" }"
+        }
+      ]
+    }
+  ],
+  "event": [],
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3000" },
+    { "key": "token", "value": "" }
+  ]
+}

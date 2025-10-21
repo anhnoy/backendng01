@@ -8,6 +8,7 @@ router.get('/:id', ctrl.getById);
 router.patch('/:id', ctrl.patch);
 router.put('/:id', ctrl.update);
 router.delete('/:id', ctrl.remove);
+router.delete('/:id/images/:imageId', ctrl.deleteImage);
 router.post('/:id/publish', ctrl.publish);
 
 module.exports = router;
