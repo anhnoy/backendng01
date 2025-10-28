@@ -1,6 +1,7 @@
-const { Op } = require('sequelize');
+const { Op, fn, col, where: buildWhere } = require('sequelize');
 const crypto = require('crypto');
 const Tour = require('../models/tour');
+const TravelPurpose = require('../models/travelPurpose');
 
 function toArray(v) {
   if (Array.isArray(v)) return v;
@@ -180,6 +181,40 @@ function validateTourData(data) {
   return errors;
 }
 
+async function resolvePurposeFields(body) {
+  if (body.purposeId !== undefined) {
+    const raw = body.purposeId;
+    if (raw === null || raw === undefined || raw === '' || raw === 'null') {
+      body.purposeId = null;
+      if (body.purpose === undefined) body.purpose = null;
+      return { valid: true };
+    }
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed)) {
+      return { valid: false, message: 'purposeId must be a number' };
+    }
+    const purpose = await TravelPurpose.findByPk(parsed);
+    if (!purpose) {
+      return { valid: false, message: 'Invalid purposeId' };
+    }
+    body.purposeId = purpose.id;
+    body.purpose = purpose.name;
+    return { valid: true };
+  }
+
+  if (body.purpose !== undefined) {
+    if (body.purpose === null || body.purpose === '') {
+      body.purposeId = null;
+      body.purpose = null;
+      return { valid: true };
+    }
+    const purpose = await TravelPurpose.findOne({ where: { name: body.purpose } });
+    body.purposeId = purpose ? purpose.id : null;
+  }
+
+  return { valid: true };
+}
+
 function toDoc(row) {
   const t = typeof row.toJSON === 'function' ? row.toJSON() : row;
   
@@ -195,6 +230,7 @@ function toDoc(row) {
     country: t.country || undefined,
     attractions: toArray(t.attractions),
     purpose: t.purpose || '',
+  purposeId: t.purposeId ?? null,
     dateStart: t.dateStart,
     dateEnd: t.dateEnd,
     days: days,
@@ -212,8 +248,8 @@ function toDoc(row) {
     discountPercent: Number(t.discountPercent || 0),
     discount: Number(t.discountPercent || 0), // Frontend alias
     additionalCost: Number(t.additionalCost || 0),
-  finalPrice: Number(t.finalPrice || 0),
-  gallery: getGalleryObjects(t.gallery),
+    finalPrice: Number(t.finalPrice || 0),
+    gallery: getGalleryObjects(t.gallery),
     notes: t.notes || undefined,
     createdAt: t.createdAt,
     updatedAt: t.updatedAt,
@@ -248,6 +284,10 @@ async function create(req, res) {
     
     // Validate required fields
     const validationErrors = validateTourData(body);
+    const purposeResolution = await resolvePurposeFields(body);
+    if (!purposeResolution.valid) {
+      validationErrors.push(purposeResolution.message);
+    }
     if (validationErrors.length > 0) {
       return res.status(400).json({ 
         error: 'Validation failed', 
@@ -261,7 +301,7 @@ async function create(req, res) {
     body.dayPlans = toArray(body.dayPlans);
     body.includedItems = toArray(body.includedItems);
     body.excludedItems = toArray(body.excludedItems);
-    body.gallery = toArray(body.gallery);
+    body.gallery = getGalleryObjects(body.gallery);
     if (body.maxGuests !== undefined) body.maxGuests = Number(body.maxGuests) || 10;
     
     // Map Frontend price fields to Backend
@@ -297,22 +337,121 @@ async function getById(req, res) {
 
 async function list(req, res) {
   try {
-    const { country, status, page = 1, pageSize = 12, q } = req.query;
+    const {
+      country,
+      status,
+      page = 1,
+      pageSize = 20,
+      q,
+      purpose,
+      purposeId,
+      priceMin,
+      priceMax
+    } = req.query;
+
+    const pageNumber = Math.max(1, Number(page) || 1);
+    const limit = Math.min(100, Number(pageSize) || 20);
+    const offset = (pageNumber - 1) * limit;
+
     const where = {};
-    if (country) where.countryCode = normalizeCountryCode(country);
-    if (status) where.status = status;
-    if (q) where[Op.or] = [
-      { title: { [Op.like]: `%${q}%` } },
-      { slug: { [Op.like]: `%${q}%` } }
-    ];
-    const limit = Math.min(50, Number(pageSize) || 12);
-    const offset = (Math.max(1, Number(page) || 1) - 1) * limit;
-    const { rows, count } = await Tour.findAndCountAll({ where, limit, offset, order: [['createdAt','DESC']] });
+    const andConditions = [];
+
+    if (country && country !== 'all') {
+      where.countryCode = normalizeCountryCode(country);
+    }
+    if (status) {
+      where.status = status;
+    }
+    if (q) {
+      const term = `%${q}%`;
+      where[Op.or] = [
+        { title: { [Op.like]: term } },
+        { slug: { [Op.like]: term } }
+      ];
+    }
+
+    if (purposeId !== undefined) {
+      if (!(purposeId === null || purposeId === '' || purposeId === 'null' || purposeId === 'all')) {
+        const parsedPurposeId = Number(purposeId);
+        if (!Number.isFinite(parsedPurposeId)) {
+          return res.status(400).json({ error: 'purposeId must be a number' });
+        }
+        const purposeRow = await TravelPurpose.findByPk(parsedPurposeId);
+        if (!purposeRow) {
+          res.setHeader('X-Total-Count', '0');
+          res.setHeader('X-Page', String(pageNumber));
+          res.setHeader('X-Page-Size', String(limit));
+          res.setHeader('X-Total-Pages', '0');
+          return res.json({ items: [], total: 0 });
+        }
+        andConditions.push({
+          [Op.or]: [
+            { purposeId: parsedPurposeId },
+            { purpose: purposeRow.name }
+          ]
+        });
+      }
+    } else if (purpose) {
+      const trimmedPurpose = String(purpose).trim();
+      const lowered = trimmedPurpose.toLowerCase();
+      if (trimmedPurpose && !['all', 'loading', 'error'].includes(lowered)) {
+        const purposeRowByName = await TravelPurpose.findOne({ where: { name: trimmedPurpose } });
+        if (purposeRowByName) {
+          andConditions.push({
+            [Op.or]: [
+              { purpose: trimmedPurpose },
+              { purposeId: purposeRowByName.id }
+            ]
+          });
+        } else {
+          andConditions.push({ purpose: trimmedPurpose });
+        }
+      }
+    }
+
+    const priceExpression = fn('COALESCE', col('finalPrice'), col('packagePrice'));
+    const minValue = priceMin !== undefined ? Number(priceMin) : undefined;
+    if (minValue !== undefined && !Number.isNaN(minValue)) {
+      andConditions.push(buildWhere(priceExpression, { [Op.gte]: minValue }));
+    }
+    const maxValue = priceMax !== undefined ? Number(priceMax) : undefined;
+    if (maxValue !== undefined && !Number.isNaN(maxValue)) {
+      andConditions.push(buildWhere(priceExpression, { [Op.lte]: maxValue }));
+    }
+
+    if (andConditions.length > 0) {
+      where[Op.and] = (where[Op.and] || []).concat(andConditions);
+    }
+
+    const { rows, count } = await Tour.findAndCountAll({ where, limit, offset, order: [['createdAt', 'DESC']] });
+
+    const purposeNames = rows
+      .map((row) => (row.purpose || '').trim())
+      .filter(Boolean);
+
+    let purposeNameMap = new Map();
+    if (purposeNames.length > 0) {
+      const uniqueNames = [...new Set(purposeNames)];
+      const purposeRows = await TravelPurpose.findAll({
+        where: { name: { [Op.in]: uniqueNames } },
+        attributes: ['id', 'name']
+      });
+      purposeNameMap = new Map(purposeRows.map((p) => [p.name, p.id]));
+    }
+
+    const items = rows.map((row) => {
+      const doc = toDoc(row);
+      if (!doc.purposeId && doc.purpose) {
+        doc.purposeId = purposeNameMap.get(doc.purpose) ?? null;
+      }
+      return doc;
+    });
+
     res.setHeader('X-Total-Count', String(count));
-    res.setHeader('X-Page', String(page));
+    res.setHeader('X-Page', String(pageNumber));
     res.setHeader('X-Page-Size', String(limit));
     res.setHeader('X-Total-Pages', String(Math.ceil(count / limit)));
-    return res.json({ items: rows.map(toDoc), total: count });
+    return res.json({ items, total: count });
   } catch (err) {
     console.error('tour.list error', err);
     return res.status(500).json({ error: 'Internal Server Error' });
@@ -332,13 +471,18 @@ async function patch(req, res) {
       body.childRoomType = body.accommodation.childRoomType ?? t.childRoomType;
     }
     // normalize array-like
-    ['attractions','dayPlans','includedItems','excludedItems','gallery'].forEach(k => {
+    ['attractions','dayPlans','includedItems','excludedItems'].forEach(k => {
       if (k in body) body[k] = toArray(body[k]);
     });
+    if ('gallery' in body) body.gallery = getGalleryObjects(body.gallery);
     if (body.maxGuests !== undefined) body.maxGuests = Number(body.maxGuests);
     // Map Frontend price fields for PATCH
     if (body.discount !== undefined) body.discountPercent = Number(body.discount);
     if (body.finalPrice !== undefined) body.finalPrice = Number(body.finalPrice);
+    const purposeResolution = await resolvePurposeFields(body);
+    if (!purposeResolution.valid) {
+      return res.status(400).json({ error: purposeResolution.message });
+    }
     await t.update(body);
     await t.reload();
     return res.json(toDoc(t));
@@ -363,13 +507,18 @@ async function update(req, res) {
       body.childRoomType = body.accommodation.childRoomType ?? t.childRoomType;
     }
     // normalize array-like
-    ['attractions','dayPlans','includedItems','excludedItems','gallery'].forEach(k => {
+    ['attractions','dayPlans','includedItems','excludedItems'].forEach(k => {
       if (k in body) body[k] = toArray(body[k]);
     });
+    if ('gallery' in body) body.gallery = getGalleryObjects(body.gallery);
     if (body.maxGuests !== undefined) body.maxGuests = Number(body.maxGuests);
     // Map Frontend price fields for PUT
     if (body.discount !== undefined) body.discountPercent = Number(body.discount);
     if (body.finalPrice !== undefined) body.finalPrice = Number(body.finalPrice);
+    const purposeResolution = await resolvePurposeFields(body);
+    if (!purposeResolution.valid) {
+      return res.status(400).json({ error: purposeResolution.message });
+    }
     await t.update(body);
     await t.reload();
     return res.json(toDoc(t));

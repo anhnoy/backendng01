@@ -9,6 +9,7 @@ const Tour = sequelize.define('Tour', {
   country: { type: DataTypes.STRING(60), allowNull: true }, // e.g., 'lao'
   countryCode: { type: DataTypes.STRING(3), allowNull: false }, // ISO-2
   attractions: { type: DataTypes.JSON, allowNull: false, defaultValue: [] },
+  purposeId: { type: DataTypes.INTEGER, allowNull: true },
   purpose: { type: DataTypes.STRING(120), allowNull: true },
 
   dateStart: { type: DataTypes.DATEONLY, allowNull: false },
@@ -67,6 +68,7 @@ const Tour = sequelize.define('Tour', {
   indexes: [
     { fields: ['countryCode'] },
     { fields: ['status'] },
+    { fields: ['purposeId'] },
     { fields: ['createdAt'] },
     { unique: true, fields: ['slug'] },
   ]

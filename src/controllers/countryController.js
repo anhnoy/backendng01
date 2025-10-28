@@ -2,7 +2,10 @@ const Country = require('../models/country');
 
 exports.getCountries = async (req, res) => {
   try {
-    const countries = await Country.findAll();
+    const countries = await Country.findAll({
+      attributes: ['code', 'name'],
+      order: [['name', 'ASC']]
+    });
     res.json(countries);
   } catch (err) {
     res.status(400).json({ error: err.message });

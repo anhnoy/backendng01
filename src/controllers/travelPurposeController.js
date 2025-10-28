@@ -17,7 +17,19 @@ function validateTravelPurpose({ name }) {
 
 exports.getTravelPurposes = async (req, res) => {
   try {
-    const purposes = await TravelPurpose.findAll();
+    const { activeOnly } = req.query;
+    const where = {};
+    if (String(activeOnly).toLowerCase() === 'true') {
+      where.isActive = true;
+    }
+    const purposes = await TravelPurpose.findAll({
+      where,
+      attributes: ['id', 'name', 'description', 'isActive', 'createdAt', 'updatedAt'],
+      order: [
+        ['isActive', 'DESC'],
+        ['name', 'ASC']
+      ]
+    });
     res.json(purposes);
   } catch (err) {
     res.status(400).json({ error: err.message });
