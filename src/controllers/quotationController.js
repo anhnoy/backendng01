@@ -242,23 +242,20 @@ async function create(req, res) {
     const totals = computeTotals(payload);
 
     const created = await Quotation.create({
-
       ...payload,
       ...totals,
-      accessCode: (() => {
-        let code, attempts = 0;
-        async function uniqueCode() {
-          do {
-            code = generateAccessCode();
-            const exists = await Quotation.findOne({ where: { accessCode: code } });
-            attempts++;
-          } while (exists && attempts < 10);
-          if (attempts >= 10) throw new Error('Failed to generate unique access code');
-          return code;
-        }
-        return uniqueCode();
-      })(),
     });
+
+    // Generate unique access code
+    let accessCode = generateAccessCode();
+    let attempts = 0;
+    while (attempts < 10) {
+      const existing = await Quotation.findOne({ where: { accessCode } });
+      if (!existing) break;
+      accessCode = generateAccessCode();
+      attempts++;
+    }
+    created.accessCode = accessCode;
 
     // Simple quotation number if empty
     if (!created.quotationNumber) {
