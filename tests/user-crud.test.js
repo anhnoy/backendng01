@@ -1,6 +1,7 @@
 const request = require('supertest');
 const express = require('express');
 const bodyParser = require('body-parser');
+const sequelize = require('../src/sequelize');
 const userRoutes = require('../src/routes/user');
 const { authenticate, authorize } = require('../src/middlewares/auth');
 
@@ -20,6 +21,14 @@ jest.mock('../src/middlewares/auth', () => ({
 describe('User CRUD API', () => {
   let userId;
   let email = `crud${Date.now()}@example.com`;
+
+  beforeAll(async () => {
+    await sequelize.sync({ force: true });
+  });
+
+  afterAll(async () => {
+    await sequelize.close();
+  });
 
   it('should create a user', async () => {
     const res = await request(app)

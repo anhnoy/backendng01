@@ -1,6 +1,7 @@
 const { Op } = require('sequelize');
 const Quotation = require('../models/quotation');
 const { computeTotals } = require('../utils/quotationTotals');
+const { generateAccessCode, generateQuotationToken, verifyQuotationToken } = require('../utils/accessCode');
 
 // Safely coerce value to array: accepts real arrays or JSON string arrays
 function toArray(val) {
@@ -47,6 +48,10 @@ function toDoc(row) {
   return {
     id: q.id,
     quotationNumber: q.quotationNumber || '',
+    accessCode: q.accessCode || undefined,
+    accessCodeCreatedAt: q.accessCodeCreatedAt || undefined,
+    shareCount: q.shareCount || 0,
+    lastSharedAt: q.lastSharedAt || undefined,
     status,
     countryCode: q.countryCode,
   attractions: toArray(q.attractions),
@@ -237,16 +242,30 @@ async function create(req, res) {
     const totals = computeTotals(payload);
 
     const created = await Quotation.create({
+
       ...payload,
       ...totals,
+      accessCode: (() => {
+        let code, attempts = 0;
+        async function uniqueCode() {
+          do {
+            code = generateAccessCode();
+            const exists = await Quotation.findOne({ where: { accessCode: code } });
+            attempts++;
+          } while (exists && attempts < 10);
+          if (attempts >= 10) throw new Error('Failed to generate unique access code');
+          return code;
+        }
+        return uniqueCode();
+      })(),
     });
 
     // Simple quotation number if empty
     if (!created.quotationNumber) {
-      const qNum = `QT-${new Date().getFullYear()}-${String(created.id).slice(-6)}`;
+      const qNum = `QT-${new Date().getFullYear()}-${String(created.id).padStart(6, '0')}`;
       created.quotationNumber = qNum;
-      await created.save();
     }
+    await created.save();
 
     return res.status(201).json(toDoc(created));
   } catch (err) {
@@ -409,4 +428,154 @@ async function remove(req, res) {
   }
 }
 
-module.exports = { create, getById, list, update, remove };
+/**
+ * POST /api/quotations/verify
+ * Verify access code and return token
+ */
+async function verify(req, res) {
+  try {
+    const { quotationId, accessCode } = req.body;
+    
+    if (!quotationId || !accessCode) {
+      return res.status(400).json({ 
+        valid: false, 
+        error: 'quotationId and accessCode are required' 
+      });
+    }
+
+    const q = await Quotation.findByPk(quotationId);
+    
+    if (!q || q.accessCode !== accessCode) {
+      return res.status(401).json({ 
+        valid: false, 
+        error: 'Invalid quotation ID or access code' 
+      });
+    }
+
+    const token = generateQuotationToken(q.id, accessCode);
+    
+    return res.json({ 
+      valid: true, 
+      token,
+      quotation: {
+        id: q.id,
+        quotationNumber: q.quotationNumber,
+        customerName: q.customerName
+      }
+    });
+  } catch (err) {
+    console.error('verify quotation error', err);
+    return res.status(500).json({ error: 'Internal Server Error' });
+  }
+}
+
+/**
+ * GET /api/quotations/:id/public
+ * Get quotation with token authentication (for public access)
+ */
+async function getByIdPublic(req, res) {
+  try {
+    const authHeader = req.headers.authorization;
+    
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Authorization token required' });
+    }
+
+    const token = authHeader.substring(7);
+    const decoded = verifyQuotationToken(token);
+    
+    if (!decoded || decoded.quotationId !== parseInt(req.params.id)) {
+      return res.status(401).json({ error: 'Invalid or expired token' });
+    }
+
+    const q = await Quotation.findByPk(req.params.id);
+    
+    if (!q) {
+      return res.status(404).json({ error: 'Quotation not found' });
+    }
+
+    // Verify access code matches
+    if (q.accessCode !== decoded.accessCode) {
+      return res.status(401).json({ error: 'Invalid access credentials' });
+    }
+
+    return res.json(toDoc(q));
+  } catch (err) {
+    console.error('get quotation public error', err);
+    return res.status(500).json({ error: 'Internal Server Error' });
+  }
+}
+
+/**
+ * POST /api/quotations/:id/generate-access-code
+ * Generate or get existing access code (for Admin)
+ */
+async function generateAccessCodeForQuotation(req, res) {
+  try {
+    const q = await Quotation.findByPk(req.params.id);
+    
+    if (!q) {
+      return res.status(404).json({ error: 'Quotation not found' });
+    }
+
+    // If already has access code, return existing one
+    if (q.accessCode) {
+      q.shareCount = (q.shareCount || 0) + 1;
+      q.lastSharedAt = new Date();
+      await q.save();
+
+      const baseUrl = process.env.PUBLIC_BASE_URL || process.env.FRONTEND_URL || 'http://localhost:8080';
+      const shareUrl = `${baseUrl}/public/quotation/${q.quotationNumber}`;
+
+      return res.json({
+        quotationId: q.id,
+        quotationNumber: q.quotationNumber,
+        accessCode: q.accessCode,
+        shareUrl,
+        createdAt: q.accessCodeCreatedAt,
+        shareCount: q.shareCount,
+        lastSharedAt: q.lastSharedAt,
+        expiresAt: null
+      });
+    }
+
+    // Generate new unique access code
+    let accessCode = generateAccessCode();
+    let attempts = 0;
+    while (attempts < 10) {
+      const existing = await Quotation.findOne({ where: { accessCode } });
+      if (!existing) break;
+      accessCode = generateAccessCode();
+      attempts++;
+    }
+
+    if (attempts >= 10) {
+      return res.status(500).json({ error: 'Failed to generate unique access code' });
+    }
+
+    q.accessCode = accessCode;
+    q.accessCodeCreatedAt = new Date();
+    q.shareCount = 1;
+    q.lastSharedAt = new Date();
+    await q.save();
+
+    const baseUrl = process.env.PUBLIC_BASE_URL || process.env.FRONTEND_URL || 'http://localhost:8080';
+    const shareUrl = `${baseUrl}/public/quotation/${q.quotationNumber}`;
+
+    return res.json({
+      quotationId: q.id,
+      quotationNumber: q.quotationNumber,
+      accessCode: q.accessCode,
+      shareUrl,
+      createdAt: q.accessCodeCreatedAt,
+      shareCount: q.shareCount,
+      lastSharedAt: q.lastSharedAt,
+      expiresAt: null
+    });
+  } catch (err) {
+    console.error('generate access code error', err);
+    return res.status(500).json({ error: 'Internal Server Error' });
+  }
+}
+
+module.exports = { create, getById, list, update, remove, verify, getByIdPublic, generateAccessCodeForQuotation };

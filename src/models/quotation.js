@@ -3,6 +3,10 @@ const sequelize = require('../sequelize');
 
 const Quotation = sequelize.define('Quotation', {
   quotationNumber: { type: DataTypes.STRING(32), allowNull: true, unique: true },
+  accessCode: { type: DataTypes.STRING(6), allowNull: true, unique: true },
+  accessCodeCreatedAt: { type: DataTypes.DATE, allowNull: true },
+  shareCount: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
+  lastSharedAt: { type: DataTypes.DATE, allowNull: true },
   status: { type: DataTypes.ENUM('waiting','writing','quotation','check'), allowNull: false, defaultValue: 'quotation' },
 
   // Basic
@@ -80,7 +84,9 @@ const Quotation = sequelize.define('Quotation', {
   indexes: [
     { fields: ['countryCode'] },
     { fields: ['status'] },
-    { fields: ['createdAt'] }
+    { fields: ['createdAt'] },
+    { fields: ['accessCode'] },
+    { fields: ['id', 'accessCode'] }
   ]
 });
 
