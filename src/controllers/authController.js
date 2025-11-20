@@ -30,7 +30,8 @@ exports.login = async (req, res) => {
     if (!user) return res.status(401).json({ message: 'Invalid credentials' });
     const match = await comparePassword(password, user.password);
     if (!match) return res.status(401).json({ message: 'Invalid credentials' });
-  const token = jwt.sign({ id: user.id, role: user.role }, jwtSecret, { expiresIn: '1d' });
+    const token = jwt.sign({ id: user.id, email: user.email, role: user.role }, jwtSecret, { expiresIn: '1d' });
+    console.log('LOGIN DEBUG: token payload:', { id: user.id, email: user.email, role: user.role });
     res.json({ token, role: user.role });
   } catch (err) {
     res.status(400).json({ error: err.message });

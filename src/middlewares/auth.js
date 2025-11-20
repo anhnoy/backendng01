@@ -9,6 +9,7 @@ exports.authenticate = (req, res, next) => {
   jwt.verify(token, jwtSecret, (err, user) => {
     if (err) return res.sendStatus(403);
     req.user = user;
+    console.log('DEBUG req.user:', req.user); // เพิ่ม log debug
     next();
   });
 };

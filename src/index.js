@@ -59,6 +59,7 @@ app.use(express.urlencoded({ limit: '10mb', extended: true }));
 
 
 app.use('/api/auth', require('./routes/auth'));
+app.use('/api/admin', require('./routes/admin'));
 app.use('/api/users', require('./routes/user'));
 app.use('/api/tasks', require('./routes/task'));
 app.use('/api/countries', require('./routes/country'));
@@ -70,6 +71,7 @@ app.use('/api/destinations', require('./routes/destination'));
 app.use('/api/foods', require('./routes/food'));
 // Re-enable FAQ and Contact APIs
 app.use('/api/faq', require('./routes/faq'));
+app.use('/api/geocoding', require('./routes/geocoding'));
 app.use('/api/contact', require('./routes/contact'));
 app.use('/api/quotations', require('./routes/quotation'));
 app.use('/api/tours', require('./routes/tour'));

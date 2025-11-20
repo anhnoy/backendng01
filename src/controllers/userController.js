@@ -8,10 +8,12 @@ exports.createUser = async (req, res) => {
       return res.status(403).json({ message: 'Cannot create superadmin via API' });
     }
     let lanId = null;
-    // ถ้า lan สร้าง op/gn ให้ผูก lanId
+    // superadmin สร้าง user ได้ทุก role (lan, op, gn)
+    // lan สร้าง op/gn ให้ผูก lanId
     if ((role === 'op' || role === 'gn') && req.user.role === 'lan') {
       lanId = req.user.id;
     }
+    // superadmin สร้าง user ไม่ต้องผูก lanId
     const hashed = await hashPassword(password);
     const user = await User.create({ email, password: hashed, role, lanId });
     res.status(201).json({ id: user.id, email: user.email, role: user.role, lanId: user.lanId });
