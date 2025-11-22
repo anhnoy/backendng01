@@ -3,7 +3,18 @@ const { hashPassword } = require('../utils/hash');
 
 exports.createUser = async (req, res) => {
   try {
-    const { email, password, role } = req.body;
+    const {
+      name,
+      status,
+      lastLogin,
+      phone,
+      profileImage,
+      note,
+      languages,
+      email,
+      password,
+      role
+    } = req.body;
     if (role === 'superadmin') {
       return res.status(403).json({ message: 'Cannot create superadmin via API' });
     }
@@ -15,8 +26,23 @@ exports.createUser = async (req, res) => {
     }
     // superadmin สร้าง user ไม่ต้องผูก lanId
     const hashed = await hashPassword(password);
-    const user = await User.create({ email, password: hashed, role, lanId });
-    res.status(201).json({ id: user.id, email: user.email, role: user.role, lanId: user.lanId });
+    const user = await User.create({
+      name,
+      status,
+      lastLogin,
+      phone,
+      profileImage,
+      note,
+      languages,
+      email,
+      password: hashed,
+      role,
+      lanId
+    });
+    // คืนข้อมูลครบทุกฟิลด์ (ยกเว้น password)
+    const { id, ...rest } = user.get({ plain: true });
+    delete rest.password;
+    res.status(201).json({ id, ...rest });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -48,17 +74,37 @@ exports.getUserById = async (req, res) => {
 
 exports.updateUser = async (req, res) => {
   try {
-    const { email, password, role } = req.body;
+    const {
+      name,
+      status,
+      lastLogin,
+      phone,
+      profileImage,
+      note,
+      languages,
+      email,
+      password,
+      role
+    } = req.body;
     const user = await User.findByPk(req.params.id);
     if (!user) return res.status(404).json({ message: 'User not found' });
     if (role === 'superadmin') {
       return res.status(403).json({ message: 'Cannot set role to superadmin' });
     }
-    user.email = email || user.email;
-    user.role = role || user.role;
+    user.name = name ?? user.name;
+    user.status = status ?? user.status;
+    user.lastLogin = lastLogin ?? user.lastLogin;
+    user.phone = phone ?? user.phone;
+    user.profileImage = profileImage ?? user.profileImage;
+    user.note = note ?? user.note;
+    user.languages = languages ?? user.languages;
+    user.email = email ?? user.email;
+    user.role = role ?? user.role;
     if (password) user.password = await hashPassword(password);
     await user.save();
-    res.json({ id: user.id, email: user.email, role: user.role });
+    const { id, ...rest } = user.get({ plain: true });
+    delete rest.password;
+    res.json({ id, ...rest });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
