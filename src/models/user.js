@@ -40,10 +40,10 @@ const User = sequelize.define('User', {
     type: DataTypes.STRING,
     allowNull: false
   },
-  role: {
-    type: DataTypes.ENUM('superadmin', 'lan', 'op', 'gn'),
-    allowNull: false
-  },
+ role: {
+  type: DataTypes.ENUM('superadmin', 'admin', 'staff', 'guide'),
+  allowNull: false
+},
   lanId: {
     type: DataTypes.INTEGER,
     allowNull: true, // null สำหรับ superadmin/lan, มีค่าเมื่อเป็น op/gn
