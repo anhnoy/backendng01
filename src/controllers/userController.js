@@ -1,4 +1,6 @@
 const User = require('../models/user');
+const { Op } = require('sequelize');
+const roleOrder = ['superadmin', 'admin', 'staff', 'guide'];
 const { hashPassword } = require('../utils/hash');
 
 exports.createUser = async (req, res) => {
@@ -18,13 +20,13 @@ exports.createUser = async (req, res) => {
     if (role === 'superadmin') {
       return res.status(403).json({ message: 'Cannot create superadmin via API' });
     }
-    let lanId = null;
-    // superadmin สร้าง user ได้ทุก role (lan, op, gn)
-    // lan สร้าง op/gn ให้ผูก lanId
-    if ((role === 'op' || role === 'gn') && req.user.role === 'lan') {
-      lanId = req.user.id;
+    let adminId = null;
+    // superadmin สร้าง user ได้ทุก role (admin, staff, guide)
+    // admin สร้าง staff/guide ให้ผูก adminId
+    if ((role === 'staff' || role === 'guide') && req.user.role === 'admin') {
+      adminId = req.user.id;
     }
-    // superadmin สร้าง user ไม่ต้องผูก lanId
+    // superadmin สร้าง user ไม่ต้องผูก adminId
     const hashed = await hashPassword(password);
     const user = await User.create({
       name,
@@ -37,7 +39,7 @@ exports.createUser = async (req, res) => {
       email,
       password: hashed,
       role,
-      lanId
+      adminId
     });
     // คืนข้อมูลครบทุกฟิลด์ (ยกเว้น password)
     const { id, ...rest } = user.get({ plain: true });
@@ -51,12 +53,35 @@ exports.createUser = async (req, res) => {
 exports.getUsers = async (req, res) => {
   try {
     let where = {};
-    // lan เห็นเฉพาะ op/gn ของตัวเอง
-    if (req.user.role === 'lan') {
-      where = { lanId: req.user.id };
+    const myRole = req.user.role;
+    if (myRole === 'superadmin') {
+      // เห็นทุก user
+      // ไม่ต้อง filter
+    } else if (myRole === 'admin') {
+      // เห็น admin ทุกคน + staff/guide ทุกคน
+      where = {
+        role: ['admin', 'staff', 'guide']
+      };
+    } else if (myRole === 'staff') {
+      // เห็น staff ทุกคน + guide ทุกคน
+      where = { role: ['staff', 'guide'] };
+    } else if (myRole === 'guide') {
+      // เห็น guide ทุกคน
+      where = { role: 'guide' };
     }
     const users = await User.findAll({ where, attributes: { exclude: ['password'] } });
-    res.json(users);
+
+    // นับจำนวนแต่ละ role
+    const roles = ['superadmin', 'admin', 'staff', 'guide'];
+    const counts = {};
+    for (const role of roles) {
+      counts[role] = users.filter(u => u.role === role).length;
+    }
+
+    res.json({
+      users,
+      counts
+    });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -91,6 +116,24 @@ exports.updateUser = async (req, res) => {
     if (role === 'superadmin') {
       return res.status(403).json({ message: 'Cannot set role to superadmin' });
     }
+    // อนุญาตให้แก้ไขได้เฉพาะ user ที่ role เล็กกว่าตัวเองเท่านั้น
+    const myRole = req.user.role;
+    // superadmin แก้ไข superadmin อื่นไม่ได้
+    if (myRole === 'superadmin' && user.role === 'superadmin' && user.id !== req.user.id) {
+      return res.status(403).json({ message: 'Cannot update other superadmin users.' });
+    }
+    // admin แก้ไข admin อื่นไม่ได้
+    if (myRole === 'admin' && user.role === 'admin' && user.id !== req.user.id) {
+      return res.status(403).json({ message: 'Cannot update other admin users.' });
+    }
+    // staff แก้ไข staff อื่นไม่ได้
+    if (myRole === 'staff' && user.role === 'staff' && user.id !== req.user.id) {
+      return res.status(403).json({ message: 'Cannot update other staff users.' });
+    }
+    // guide แก้ไข guide อื่นไม่ได้
+    if (myRole === 'guide' && user.role === 'guide' && user.id !== req.user.id) {
+      return res.status(403).json({ message: 'Cannot update other guide users.' });
+    }
     user.name = name ?? user.name;
     user.status = status ?? user.status;
     user.lastLogin = lastLogin ?? user.lastLogin;
@@ -114,6 +157,20 @@ exports.deleteUser = async (req, res) => {
   try {
     const user = await User.findByPk(req.params.id);
     if (!user) return res.status(404).json({ message: 'User not found' });
+    // ป้องกันการลบ user ที่ role เท่ากับตัวเองหรือสูงกว่า (ยกเว้นตัวเอง)
+    const myRole = req.user.role;
+    if (myRole === 'superadmin' && user.role === 'superadmin' && user.id !== req.user.id) {
+      return res.status(403).json({ message: 'Cannot delete other superadmin users.' });
+    }
+    if (myRole === 'admin' && user.role === 'admin' && user.id !== req.user.id) {
+      return res.status(403).json({ message: 'Cannot delete other admin users.' });
+    }
+    if (myRole === 'staff' && user.role === 'staff' && user.id !== req.user.id) {
+      return res.status(403).json({ message: 'Cannot delete other staff users.' });
+    }
+    if (myRole === 'guide' && user.role === 'guide' && user.id !== req.user.id) {
+      return res.status(403).json({ message: 'Cannot delete other guide users.' });
+    }
     await user.destroy();
     res.json({ message: 'User deleted' });
   } catch (err) {
