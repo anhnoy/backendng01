@@ -6,8 +6,6 @@ if (process.env.NODE_ENV === 'test') {
 } else {
   require('dotenv').config();
 }
-console.log('LOOKING FOR CA AT:', path.join(__dirname, '..', 'ca.pem'));
-console.log('FILE EXISTS:', fs.existsSync(path.join(__dirname, '..', 'ca.pem')));
 
 module.exports = {
   db: {
@@ -16,15 +14,7 @@ module.exports = {
     password: process.env.DB_PASS,
     host: process.env.DB_HOST,
     port: process.env.DB_PORT || 3306,
-    dialect: 'mysql',
- dialectOptions: {
-  ssl: {
-    ca: fs.readFileSync(path.join(__dirname, '..', 'ca.pem')),
-    rejectUnauthorized: false
-  }
-}
-
-
+    dialect: 'mysql'
   },
   jwtSecret: process.env.JWT_SECRET || 'dev-secret-change-me',
 };

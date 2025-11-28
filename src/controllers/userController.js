@@ -1,3 +1,20 @@
+function transformGuide(user) {
+  return {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    phone: user.phone,
+    languages: user.languages ? (Array.isArray(user.languages) ? user.languages : user.languages.split(',').map(s => s.trim()).filter(Boolean)) : [],
+    experience: user.experience ?? 0,
+    workArea: user.workArea ? (Array.isArray(user.workArea) ? user.workArea : user.workArea.split(',').map(s => s.trim()).filter(Boolean)) : [],
+    rating: user.rating ?? null,
+    availability: user.availability ?? 'offline',
+    completedTrips: user.completedTrips ?? 0,
+    profileImage: user.profileImage ?? null,
+    status: user.status,
+    role: user.role
+  };
+}
 const User = require('../models/user');
 const { Op } = require('sequelize');
 const roleOrder = ['superadmin', 'admin', 'staff', 'guide'];
@@ -54,33 +71,67 @@ exports.getUsers = async (req, res) => {
   try {
     let where = {};
     const myRole = req.user.role;
-    if (myRole === 'superadmin') {
+    // --- Filter by role from query param ---
+    let filterRoles = null;
+    if (req.query.role) {
+      if (Array.isArray(req.query.role)) {
+        // /api/users?role=guide&role=staff
+        filterRoles = req.query.role;
+      } else if (typeof req.query.role === 'string') {
+        // /api/users?role=guide,staff
+        filterRoles = req.query.role.split(',').map(r => r.trim()).filter(Boolean);
+      }
+    }
+
+    if (filterRoles && filterRoles.length > 0) {
+      where.role = filterRoles;
+    } else if (myRole === 'superadmin') {
       // เห็นทุก user
       // ไม่ต้อง filter
     } else if (myRole === 'admin') {
       // เห็น admin ทุกคน + staff/guide ทุกคน
-      where = {
-        role: ['admin', 'staff', 'guide']
-      };
+      where.role = ['admin', 'staff', 'guide'];
     } else if (myRole === 'staff') {
       // เห็น staff ทุกคน + guide ทุกคน
-      where = { role: ['staff', 'guide'] };
+      where.role = ['staff', 'guide'];
     } else if (myRole === 'guide') {
       // เห็น guide ทุกคน
-      where = { role: 'guide' };
+      where.role = 'guide';
     }
-    const users = await User.findAll({ where, attributes: { exclude: ['password'] } });
 
-    // นับจำนวนแต่ละ role
+    // --- Pagination ---
+    const page = parseInt(req.query.page, 10) || 1;
+    const pageSize = Math.min(parseInt(req.query.pageSize, 10) || 20, 100);
+    const offset = (page - 1) * pageSize;
+
+    const { rows: users, count: total } = await User.findAndCountAll({
+      where,
+      attributes: { exclude: ['password'] },
+      limit: pageSize,
+      offset
+    });
+
+    // นับจำนวนแต่ละ role (เฉพาะในผลลัพธ์หน้านี้)
     const roles = ['superadmin', 'admin', 'staff', 'guide'];
     const counts = {};
     for (const role of roles) {
       counts[role] = users.filter(u => u.role === role).length;
     }
 
+    // ถ้า filter เฉพาะ guide/staff ให้ map ด้วย transformGuide
+    let usersOut = users;
+    if (Array.isArray(where.role) && where.role.every(r => r === 'guide' || r === 'staff')) {
+      usersOut = users.map(transformGuide);
+    }
     res.json({
-      users,
-      counts
+      users: usersOut,
+      counts,
+      meta: {
+        page,
+        pageSize,
+        total,
+        totalPages: Math.ceil(total / pageSize)
+      }
     });
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -91,6 +142,10 @@ exports.getUserById = async (req, res) => {
   try {
     const user = await User.findByPk(req.params.id, { attributes: { exclude: ['password'] } });
     if (!user) return res.status(404).json({ message: 'User not found' });
+    // ถ้าเป็น guide/staff map ด้วย transformGuide
+    if (user.role === 'guide' || user.role === 'staff') {
+      return res.json(transformGuide(user));
+    }
     res.json(user);
   } catch (err) {
     res.status(400).json({ error: err.message });

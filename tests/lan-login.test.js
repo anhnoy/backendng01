@@ -14,9 +14,10 @@ describe('Lan Login API', () => {
   beforeAll(async () => {
     // สมัคร user lan ก่อน
     email = `lan${Date.now()}@example.com`;
-    await request(app)
+    const registerRes = await request(app)
       .post('/api/auth/register')
       .send({ email, password, role: 'lan' });
+    expect(registerRes.statusCode).toBe(201); // Ensure registration is successful
   });
 
   it('should login lan with correct credentials', async () => {
